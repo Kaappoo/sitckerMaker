@@ -22,6 +22,7 @@ interface WhatsAppStickersPlugin {
     imageDataVersion: string
     trayImage: string
     trayImageType: 'png' | 'webp'
+    animated: boolean
     stickers: NativeSticker[]
   }): Promise<{ added: boolean }>
 }
@@ -43,8 +44,12 @@ export function validatePack(pack: StickerPack): string[] {
   if (pack.name.length > LIMITS.maxTextLength || pack.publisher.length > LIMITS.maxTextLength) {
     problems.push(`Nome e autor podem ter no máximo ${LIMITS.maxTextLength} caracteres.`)
   }
-  if (pack.stickers.some((s) => s.image.size > LIMITS.stickerMaxBytes)) {
-    problems.push('Alguma figurinha passou de 100 KB.')
+  const maxBytes = pack.animated ? LIMITS.animatedStickerMaxBytes : LIMITS.stickerMaxBytes
+  if (pack.stickers.some((s) => s.image.size > maxBytes)) {
+    problems.push(`Alguma figurinha passou de ${maxBytes / 1024} KB.`)
+  }
+  if (pack.stickers.some((s) => !!s.animated !== !!pack.animated)) {
+    problems.push('O pacote mistura figurinhas estáticas e animadas.')
   }
   return problems
 }
@@ -76,6 +81,7 @@ export async function addToWhatsApp(pack: StickerPack): Promise<boolean> {
     imageDataVersion: String(pack.version),
     trayImage: await blobToBase64(tray),
     trayImageType: tray.type === 'image/png' ? 'png' : 'webp',
+    animated: !!pack.animated,
     stickers,
   })
   return added

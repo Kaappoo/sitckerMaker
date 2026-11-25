@@ -1,4 +1,16 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  ANIM,
+  closeVideo,
+  decodeAnimatedImage,
+  disposeFrames,
+  exportAnimatedWebp,
+  extractVideoFrames,
+  openVideo,
+  totalMs,
+  type AnimFrames,
+  type VideoInfo,
+} from '../lib/animation'
 import { removeBackground } from '../lib/backgroundRemoval'
 import {
   CANVAS,
@@ -15,6 +27,8 @@ import {
 import { newId } from '../lib/types'
 
 interface Props {
+  /** Pacote animado: aceita vídeo/GIF e gera WebP animado */
+  animated: boolean
   onCancel: () => void
   onSave: (image: Blob, emojis: string[]) => Promise<void>
 }
@@ -38,7 +52,7 @@ function angle(a: { x: number; y: number }, b: { x: number; y: number }) {
   return Math.atan2(b.y - a.y, b.x - a.x)
 }
 
-export function Editor({ onCancel, onSave }: Props) {
+export function Editor({ animated, onCancel, onSave }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -52,6 +66,46 @@ export function Editor({ onCancel, onSave }: Props) {
   const [emojis, setEmojis] = useState('😀')
   const [busy, setBusy] = useState<{ label: string; fraction: number | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Animação (vídeo ou GIF)
+  const [anim, setAnim] = useState<AnimFrames | null>(null)
+  const [frameIndex, setFrameIndex] = useState(0)
+  const [video, setVideo] = useState<VideoInfo | null>(null)
+  const [trim, setTrim] = useState({ start: 0, seconds: ANIM.defaultSeconds as number })
+  const [trimmed, setTrimmed] = useState({ start: 0, seconds: ANIM.defaultSeconds as number })
+
+  // libera vídeo e quadros ao sair do editor
+  const media = useRef<{ video: VideoInfo | null; anim: AnimFrames | null }>({ video: null, anim: null })
+  useLayoutEffect(() => {
+    media.current = { video, anim }
+  })
+  useEffect(
+    () => () => {
+      closeVideo(media.current.video)
+      disposeFrames(media.current.anim)
+    },
+    [],
+  )
+
+  // toca a prévia da animação
+  useEffect(() => {
+    if (!anim || anim.frames.length < 2) return
+    let i = 0
+    let timer: ReturnType<typeof setTimeout>
+    const tick = () => {
+      i = (i + 1) % anim.frames.length
+      setFrameIndex(i)
+      timer = setTimeout(tick, anim.durations[i])
+    }
+    timer = setTimeout(tick, anim.durations[0])
+    return () => clearTimeout(timer)
+  }, [anim])
+
+  /** Camada de imagem com o quadro atual da animação */
+  const shown: ImageLayer | null = useMemo(
+    () => (image && anim ? { ...image, bitmap: anim.frames[Math.min(frameIndex, anim.frames.length - 1)] } : image),
+    [image, anim, frameIndex],
+  )
 
   // Estado atual acessível dentro dos handlers de gesto
   const live = useRef({ image, texts })
@@ -69,7 +123,7 @@ export function Editor({ onCancel, onSave }: Props) {
     if (!canvas) return
     const ctx = canvas.getContext('2d')!
     ctx.clearRect(0, 0, CANVAS, CANVAS)
-    ctx.drawImage(renderDesign({ image, texts, outline }), 0, 0)
+    ctx.drawImage(renderDesign({ image: shown, texts, outline }), 0, 0)
 
     // guia da seleção
     ctx.save()
@@ -87,12 +141,67 @@ export function Editor({ onCancel, onSave }: Props) {
       ctx.strokeRect(-w / 2, -h / 2, w, h)
     }
     ctx.restore()
-  }, [image, texts, outline, selected, selectedText])
+  }, [image, shown, texts, outline, selected, selectedText])
+
+  // ---------- Carregar vídeo / GIF ----------
+  function applyFrames(next: AnimFrames) {
+    disposeFrames(anim)
+    setAnim(next)
+    setFrameIndex(0)
+    // o 1º quadro define o tamanho; os outros têm as mesmas dimensões
+    setImage((img) => (img && img.bitmap.width === next.frames[0].width && img.bitmap.height === next.frames[0].height
+      ? { ...img, bitmap: next.frames[0] }
+      : fitImage(next.frames[0])))
+    setSelected('image')
+  }
+
+  async function loadVideoSegment(info: VideoInfo, start: number, seconds: number) {
+    setBusy({ label: 'Lendo quadros do vídeo…', fraction: 0 })
+    try {
+      const frames = await extractVideoFrames(info, start, seconds, (f) =>
+        setBusy({ label: 'Lendo quadros do vídeo…', fraction: f }),
+      )
+      applyFrames(frames)
+      setTrimmed({ start, seconds })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function handleAnimatedFile(file: File) {
+    if (file.type.startsWith('video/')) {
+      const info = await openVideo(file)
+      closeVideo(video)
+      setVideo(info)
+      const t = { start: 0, seconds: Math.min(ANIM.defaultSeconds, info.duration) }
+      setTrim(t)
+      await loadVideoSegment(info, t.start, t.seconds)
+    } else {
+      setBusy({ label: 'Lendo animação…', fraction: null })
+      try {
+        const frames = await decodeAnimatedImage(file)
+        closeVideo(video)
+        setVideo(null)
+        applyFrames(frames)
+      } finally {
+        setBusy(null)
+      }
+    }
+  }
 
   // ---------- Carregar foto ----------
   async function handleFile(file: File | undefined) {
     if (!file) return
     setError(null)
+    if (animated) {
+      try {
+        await handleAnimatedFile(file)
+      } catch (e) {
+        console.error(e)
+        setError(e instanceof Error ? e.message : 'Não consegui abrir esse arquivo.')
+      }
+      return
+    }
     try {
       const bmp = await loadImage(file)
       original?.close()
@@ -247,7 +356,15 @@ export function Editor({ onCancel, onSave }: Props) {
     setError(null)
     setBusy({ label: 'Gerando figurinha…', fraction: null })
     try {
-      const blob = await exportStickerWebp(renderDesign({ image, texts, outline }))
+      const blob =
+        anim && image
+          ? await exportAnimatedWebp(
+              anim.frames.length,
+              anim.durations,
+              (i) => renderDesign({ image: { ...image, bitmap: anim.frames[i] }, texts, outline }),
+              (label) => setBusy({ label, fraction: null }),
+            )
+          : await exportStickerWebp(renderDesign({ image, texts, outline }))
       await onSave(blob, parseEmojis(emojis))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Falha ao salvar')
@@ -255,13 +372,15 @@ export function Editor({ onCancel, onSave }: Props) {
     }
   }
 
-  const isEmpty = !image && texts.length === 0
+  const isEmpty = animated ? !anim : !image && texts.length === 0
+  const hasMedia = animated ? !!anim : !!original
+  const pickLabel = animated ? (hasMedia ? 'Trocar vídeo' : 'Vídeo ou GIF') : original ? 'Trocar foto' : 'Foto'
 
   return (
     <div className="screen editor">
       <header className="topbar">
         <button className="ghost" onClick={onCancel}>Cancelar</button>
-        <h1>Nova figurinha</h1>
+        <h1>{animated ? 'Figurinha animada' : 'Nova figurinha'}</h1>
         <button className="primary small" onClick={handleSave} disabled={isEmpty || !!busy}>Salvar</button>
       </header>
 
@@ -277,10 +396,10 @@ export function Editor({ onCancel, onSave }: Props) {
           onPointerCancel={onPointerUp}
           onWheel={onWheel}
         />
-        {!original && (
+        {!hasMedia && !busy && (
           <button className="pick-photo" onClick={() => fileRef.current?.click()}>
-            <span className="big">🖼️</span>
-            Escolher foto
+            <span className="big">{animated ? '🎬' : '🖼️'}</span>
+            {animated ? 'Escolher vídeo ou GIF' : 'Escolher foto'}
           </button>
         )}
         {busy && (
@@ -299,7 +418,7 @@ export function Editor({ onCancel, onSave }: Props) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept={animated ? 'video/*,image/gif,image/webp' : 'image/*'}
         hidden
         onChange={(e) => {
           void handleFile(e.target.files?.[0])
@@ -308,10 +427,12 @@ export function Editor({ onCancel, onSave }: Props) {
       />
 
       <div className="tools">
-        <button onClick={() => fileRef.current?.click()} disabled={!!busy}>🖼️ {original ? 'Trocar foto' : 'Foto'}</button>
-        <button onClick={handleRemoveBackground} disabled={!original || !!busy} className={useCutout ? 'active' : ''}>
-          ✂️ {cutout ? (useCutout ? 'Fundo removido' : 'Remover fundo') : 'Remover fundo'}
-        </button>
+        <button onClick={() => fileRef.current?.click()} disabled={!!busy}>{animated ? '🎬' : '🖼️'} {pickLabel}</button>
+        {!animated && (
+          <button onClick={handleRemoveBackground} disabled={!original || !!busy} className={useCutout ? 'active' : ''}>
+            ✂️ {cutout ? (useCutout ? 'Fundo removido' : 'Remover fundo') : 'Remover fundo'}
+          </button>
+        )}
         <button onClick={addText} disabled={!!busy}>🔤 Texto</button>
         <button
           onClick={() => setOutline((o) => ({ ...o, enabled: !o.enabled }))}
@@ -321,6 +442,46 @@ export function Editor({ onCancel, onSave }: Props) {
           ⭕ Contorno
         </button>
       </div>
+
+      {video && (
+        <section className="panel">
+          <label>
+            Início do trecho: {trim.start.toFixed(1)} s
+            <input
+              type="range"
+              min={0}
+              max={Math.max(0, video.duration - 0.5)}
+              step={0.1}
+              value={trim.start}
+              onChange={(e) => setTrim({ ...trim, start: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            Duração: {Math.min(trim.seconds, video.duration - trim.start).toFixed(1)} s (máx. {ANIM.maxSeconds} s)
+            <input
+              type="range"
+              min={0.5}
+              max={Math.min(ANIM.maxSeconds, video.duration)}
+              step={0.1}
+              value={trim.seconds}
+              onChange={(e) => setTrim({ ...trim, seconds: Number(e.target.value) })}
+            />
+          </label>
+          <button
+            className="ghost"
+            disabled={!!busy || (trim.start === trimmed.start && trim.seconds === trimmed.seconds)}
+            onClick={() => void loadVideoSegment(video, trim.start, trim.seconds).catch((e) => setError(String(e)))}
+          >
+            Atualizar trecho
+          </button>
+        </section>
+      )}
+
+      {anim && (
+        <p className="hint">
+          {anim.frames.length} quadros · {(totalMs(anim) / 1000).toFixed(1)} s
+        </p>
+      )}
 
       {selected === 'image' && image && (
         <section className="panel">

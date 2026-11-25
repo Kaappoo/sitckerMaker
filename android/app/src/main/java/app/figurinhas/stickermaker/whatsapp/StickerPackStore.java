@@ -52,15 +52,17 @@ public final class StickerPackStore {
         public final String publisher;
         public final String trayImageFile;
         public final String imageDataVersion;
+        public final boolean animated;
         public final List<Sticker> stickers;
 
         Pack(String identifier, String name, String publisher, String trayImageFile,
-             String imageDataVersion, List<Sticker> stickers) {
+             String imageDataVersion, boolean animated, List<Sticker> stickers) {
             this.identifier = identifier;
             this.name = name;
             this.publisher = publisher;
             this.trayImageFile = trayImageFile;
             this.imageDataVersion = imageDataVersion;
+            this.animated = animated;
             this.stickers = stickers;
         }
     }
@@ -94,7 +96,7 @@ public final class StickerPackStore {
     /** Substitui por completo os arquivos do pacote. */
     public static synchronized void save(@NonNull Context ctx, @NonNull String identifier,
                                          @NonNull String name, @NonNull String publisher,
-                                         @NonNull String imageDataVersion,
+                                         @NonNull String imageDataVersion, boolean animated,
                                          @NonNull byte[] tray, @NonNull String trayExtension,
                                          @NonNull List<NewSticker> stickers)
             throws IOException, JSONException {
@@ -121,6 +123,7 @@ public final class StickerPackStore {
                 .put("publisher", publisher)
                 .put("tray", trayFile)
                 .put("imageDataVersion", imageDataVersion)
+                .put("animated", animated)
                 .put("stickers", stickerArr);
         write(new File(dir, META), meta.toString().getBytes(StandardCharsets.UTF_8));
     }
@@ -158,6 +161,7 @@ public final class StickerPackStore {
                     json.getString("publisher"),
                     json.getString("tray"),
                     json.getString("imageDataVersion"),
+                    json.optBoolean("animated", false),
                     stickers);
         } catch (IOException | JSONException e) {
             return null;

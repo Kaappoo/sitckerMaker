@@ -50,12 +50,13 @@ export default function App() {
     await refresh()
   }
 
-  async function createPack(name: string, publisher: string) {
+  async function createPack(name: string, publisher: string, animated: boolean) {
     const pack: StickerPack = {
       id: newId(),
       name,
       publisher,
       stickers: [],
+      animated,
       version: 1,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -72,9 +73,10 @@ export default function App() {
     if (!pack) return null
     return (
       <Editor
+        animated={!!pack.animated}
         onCancel={() => setView({ name: 'pack', id: pack.id })}
         onSave={async (image, emojis) => {
-          await persist({ ...pack, stickers: [...pack.stickers, { id: newId(), image, emojis }] }, true)
+          await persist({ ...pack, stickers: [...pack.stickers, { id: newId(), image, emojis, animated: !!pack.animated }] }, true)
           setView({ name: 'pack', id: pack.id })
         }}
       />

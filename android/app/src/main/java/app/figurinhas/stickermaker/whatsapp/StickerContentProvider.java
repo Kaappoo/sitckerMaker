@@ -121,7 +121,7 @@ public class StickerContentProvider extends ContentProvider {
                     .add("")
                     .add(p.imageDataVersion)
                     .add(0)
-                    .add(0);
+                    .add(p.animated ? 1 : 0);
         }
         c.setNotificationUri(requireContext().getContentResolver(), uri);
         return c;

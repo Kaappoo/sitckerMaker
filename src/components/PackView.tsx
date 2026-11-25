@@ -78,7 +78,7 @@ export function PackView({ pack, onBack, onAddSticker, onChange, onDelete }: Pro
       </header>
 
       <p className="muted center">
-        {pack.publisher} · {pack.stickers.length}/{LIMITS.maxStickers} figurinhas
+        {pack.animated ? 'Pacote animado · ' : ''}{pack.publisher} · {pack.stickers.length}/{LIMITS.maxStickers} figurinhas
       </p>
 
       <ul className="sticker-grid">
@@ -122,7 +122,7 @@ export function PackView({ pack, onBack, onAddSticker, onChange, onDelete }: Pro
         <div className="sheet-backdrop" onClick={() => setActive(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <div className="sheet-preview"><Thumb blob={active.image} /></div>
-            <p className="muted center">{Math.round(active.image.size / 1024)} KB · 512×512 WebP</p>
+            <p className="muted center">{Math.round(active.image.size / 1024)} KB · 512×512 WebP{active.animated ? ' animado' : ''}</p>
             <label>
               Emojis (até 3)
               <input value={emojiDraft} onChange={(e) => setEmojiDraft(e.target.value)} />

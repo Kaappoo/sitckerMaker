@@ -37,6 +37,7 @@ public class WhatsAppStickersPlugin extends Plugin {
     private static final String ACTION_ENABLE_STICKER_PACK = "com.whatsapp.intent.action.ENABLE_STICKER_PACK";
 
     private static final int MAX_STICKER_BYTES = 100 * 1024;
+    private static final int MAX_ANIMATED_STICKER_BYTES = 500 * 1024;
     private static final int MAX_TRAY_BYTES = 50 * 1024;
 
     @PluginMethod
@@ -55,6 +56,8 @@ public class WhatsAppStickersPlugin extends Plugin {
         String version = call.getString("imageDataVersion", "1");
         String trayB64 = call.getString("trayImage");
         String trayType = call.getString("trayImageType", "png");
+        boolean animated = Boolean.TRUE.equals(call.getBoolean("animated", false));
+        int maxStickerBytes = animated ? MAX_ANIMATED_STICKER_BYTES : MAX_STICKER_BYTES;
         JSArray stickersArr = call.getArray("stickers");
 
         if (!StickerPackStore.isValidIdentifier(identifier)) {
@@ -88,8 +91,8 @@ public class WhatsAppStickersPlugin extends Plugin {
             for (int i = 0; i < stickersArr.length(); i++) {
                 JSONObject s = stickersArr.getJSONObject(i);
                 byte[] webp = Base64.decode(s.getString("data"), Base64.DEFAULT);
-                if (webp.length > MAX_STICKER_BYTES) {
-                    call.reject("A figurinha " + (i + 1) + " passou de 100 KB");
+                if (webp.length > maxStickerBytes) {
+                    call.reject("A figurinha " + (i + 1) + " passou de " + (maxStickerBytes / 1024) + " KB");
                     return;
                 }
                 List<String> emojis = new ArrayList<>();
@@ -103,7 +106,7 @@ public class WhatsAppStickersPlugin extends Plugin {
             }
 
             StickerPackStore.save(getContext(), identifier, name.trim(), publisher.trim(), version,
-                    tray, trayType, stickers);
+                    animated, tray, trayType, stickers);
             // avisa o WhatsApp que os dados mudaram
             getContext().getContentResolver().notifyChange(
                     android.net.Uri.parse("content://" + StickerContentProvider.authority(getContext()) + "/metadata"),

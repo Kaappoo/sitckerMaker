@@ -3,7 +3,8 @@
 App para criar figurinhas de WhatsApp e adicioná-las como pacote, direto do celular.
 
 - **Editor:** foto da galeria ou câmera, remoção de fundo com IA (roda no aparelho), mover/zoom/girar com os dedos, textos e contorno branco estilo figurinha.
-- **Pacotes:** de 3 a 30 figurinhas, guardados no próprio aparelho (IndexedDB).
+- **Animadas:** a partir de vídeo (escolhendo o trecho, até 8 s) ou GIF, com textos e contorno em todos os quadros.
+- **Pacotes:** de 3 a 30 figurinhas, guardados no próprio aparelho (IndexedDB). Cada pacote é estático ou animado, porque o WhatsApp não aceita misturar.
 - **WhatsApp:** botão "Adicionar ao WhatsApp" que usa a integração oficial de pacotes (Android).
 
 Feito com React + TypeScript + Vite, empacotado como app Android com Capacitor.
@@ -16,6 +17,15 @@ O WhatsApp só aceita pacotes vindos de um app instalado. O fluxo é:
 2. O plugin nativo `WhatsAppStickers` (`android/app/src/main/java/.../whatsapp/`) grava os arquivos em `files/sticker_packs/<id>/` no armazenamento interno.
 3. O plugin dispara a intent `com.whatsapp.intent.action.ENABLE_STICKER_PACK`.
 4. O WhatsApp lê o pacote pelo `StickerContentProvider` (protegido pela permissão `com.whatsapp.sticker.READ`) e mostra a tela de confirmação.
+
+### Figurinhas animadas
+
+O WhatsApp não usa GIF: figurinha animada é **WebP animado** 512×512, até 500 KB e até 10 s. O app (`src/lib/animation.ts`):
+
+1. extrai quadros do vídeo a 10 fps (ou decodifica o GIF com `ImageDecoder`);
+2. renderiza cada quadro com textos e contorno e o codifica como WebP pelo canvas;
+3. junta os quadros num WebP animado montando o contêiner RIFF (`VP8X` + `ANIM` + `ANMF`) em JavaScript;
+4. se passar de 500 KB, reduz a qualidade e depois a quantidade de quadros, mantendo a duração.
 
 Ao mudar um pacote, o campo `version` aumenta e é enviado como `image_data_version`, o que faz o WhatsApp atualizar o pacote já adicionado.
 
@@ -37,4 +47,5 @@ Para instalar nos celulares dos amigos sem Play Store, mande o `app-debug.apk` e
 ## Observações
 
 - A remoção de fundo usa `@imgly/background-removal` (licença **AGPL-3.0**). O modelo (~40 MB) é baixado da CDN da IMG.LY no primeiro uso e depois fica em cache, então essa função precisa de internet na primeira vez.
+- Remover fundo ainda não funciona em figurinhas animadas.
 - O APK de debug serve para uso entre amigos. Para a Play Store, gere um build de release assinado.

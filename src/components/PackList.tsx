@@ -7,7 +7,7 @@ import { Thumb } from './Thumb'
 interface Props {
   packs: StickerPack[]
   onOpen: (id: string) => void
-  onCreate: (name: string, publisher: string) => void
+  onCreate: (name: string, publisher: string, animated: boolean) => void
 }
 
 export function PackList({ packs, onOpen, onCreate }: Props) {
@@ -33,7 +33,9 @@ export function PackList({ packs, onOpen, onCreate }: Props) {
                 <div className="pack-thumb"><Thumb blob={p.stickers[0]?.image} /></div>
                 <div className="pack-info">
                   <strong>{p.name}</strong>
-                  <span className="muted">{p.publisher} · {p.stickers.length} figurinha{p.stickers.length === 1 ? '' : 's'}</span>
+                  <span className="muted">
+                    {p.animated ? 'Animado · ' : ''}{p.publisher} · {p.stickers.length} figurinha{p.stickers.length === 1 ? '' : 's'}
+                  </span>
                 </div>
               </button>
             </li>
@@ -46,10 +48,11 @@ export function PackList({ packs, onOpen, onCreate }: Props) {
       {creating && (
         <PackForm
           title="Novo pacote"
+          askType
           onCancel={() => setCreating(false)}
-          onSubmit={(name, publisher) => {
+          onSubmit={(name, publisher, animated) => {
             setCreating(false)
-            onCreate(name, publisher)
+            onCreate(name, publisher, animated)
           }}
         />
       )}
